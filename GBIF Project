@@ -1,0 +1,133 @@
+import requests
+import json
+#imports requests and JSON
+
+def get_usage_key(scientific_name):
+    #Retrieve the usage key for the given scientific name.
+    url = f"https://api.gbif.org/v1/species/match?name={scientific_name}"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        data = response.json()
+        return data.get('usageKey', None)
+    else:
+        print(f"Error retrieving usage key: {response.status_code}")
+        return None
+
+def get_additional_info(usage_key):
+    #Retrieve additional information for the species.
+    vernacular_names_url = f"https://api.gbif.org/v1/species/{usage_key}/vernacularNames"
+    distributions_url = f"https://api.gbif.org/v1/species/{usage_key}/distributions"
+    
+    vernacular_response = requests.get(vernacular_names_url)
+    distribution_response = requests.get(distributions_url)
+
+    # Retrieve vernacular names
+    if vernacular_response.status_code == 200:
+        vernacular_data = vernacular_response.json()
+        vernacular_names = list(dict.fromkeys([vn['vernacularName'] for vn in vernacular_data['results']]))[:5]
+    else:
+        print(f"Error retrieving vernacular names: {vernacular_response.status_code}")
+        vernacular_names = ['Not Available']
+
+    # Retrieve distributions
+    if distribution_response.status_code == 200:
+        distribution_data = distribution_response.json()
+        distributions = list(set(d.get('locality', 'Not Available') for d in distribution_data.get('results', [])))
+        if not distributions:
+            distributions = ['Not Available']  # Default if no localities found
+    else:
+        #if no distribution
+        print(f"Error retrieving distributions: {distribution_response.status_code}")
+        distributions = ['Not Available']
+
+    return vernacular_names, distributions
+
+def get_descriptions(usage_key, limit=20, offset=0):
+    #Retrieve descriptions for the species, attempting to limit the full description."""
+    descriptions_url = f"https://api.gbif.org/v1/species/{usage_key}/descriptions?limit={limit}&offset={offset}"
+    descriptions_response = requests.get(descriptions_url)
+
+    if descriptions_response.status_code == 200:
+        descriptions_data = descriptions_response.json()
+        descriptions = descriptions_data['results']  # Retrieve the list of descriptions
+        
+        # Process each description
+        for description in descriptions:
+            description_text = description.get('description', '')  # Use get to avoid KeyError
+            words = description_text.split()
+
+            # Skip the first 200 words and take the next 100 words
+            limited_description = ' '.join(words[200:300])  # Get words from index 200 to 299
+            description['description'] = limited_description if limited_description else 'Not Available'  # Check if description is empty
+    else:
+        print(f"Error retrieving descriptions: {descriptions_response.status_code}")
+        return []  # Return an empty list for consistency
+
+    return descriptions
+
+
+def get_iucn_info(usage_key):
+    #Retrieve IUCN Red List information for the species."""
+    iucn_url = f"https://api.gbif.org/v1/species/{usage_key}/iucnRedListCategory"
+    iucn_response = requests.get(iucn_url)
+    
+    if iucn_response.status_code == 200:
+        iucn_data = iucn_response.json()
+        category = iucn_data.get('category', 'Not Available')
+        return category  # Retrieve IUCN category only
+    else:
+        print(f"Error retrieving IUCN info: {iucn_response.status_code}")
+        return 'Not Available'
+
+
+def main():
+    #main function used to run functions in while loop
+    while True:
+        scientific_name = input("Enter the scientific name of the species (or 'x' to exit): ")
+        if scientific_name.lower() == 'x':
+            #allows a break from the while loop
+            break
+        
+        usage_key = get_usage_key(scientific_name)  # Get usage key
+
+        if usage_key is None:
+            print("Species not found.")
+            continue
+
+        # Retrieve additional information
+        vernacular_names, distributions = get_additional_info(usage_key)
+        descriptions = get_descriptions(usage_key)  # Get descriptions data
+        category = get_iucn_info(usage_key)  # Call to new function for IUCN info
+
+        # Print species information in a clean format
+        print(f"\n--- Species Information ---")
+        print(f"\nScientific Name: {scientific_name}")
+        print(f"Common Names: {', '.join(vernacular_names) if vernacular_names else 'Not Available'}")
+        print(f"IUCN Category: {category}")
+        print(f"Distribution: {', '.join(distributions) if distributions else 'Not Available'}")
+
+        # Print descriptions
+        print("\nDescriptions Data:")
+        for description in descriptions:
+            print(f"- Type: {description['type']}, Language: {description['language']}, Description: {description['description']}")
+
+        print()  # Add a line break after species information to help readability
+
+        # writes to json file
+        data = {
+            'scientific_name': scientific_name,
+            'common_names': vernacular_names,
+            'iucn_category': category,
+            'distribution': distributions,
+            'descriptions': descriptions  # Store limited descriptions data
+        }
+        filename = f"{scientific_name.replace(' ', '_')}_info.json"
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=4)
+
+        print(f"Data saved to {filename}\n")  # Add a line break at the end
+
+if __name__ == "__main__":
+    main()
+    #calls main function to run the code
